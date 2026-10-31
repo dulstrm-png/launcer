@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="id" data-anim="on">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0a0b0e">
+<title>Panel Pintar</title>
+<!--
+=====================================================================
+PANEL PINTAR  -  satu file, tanpa library
+
+JEMBATAN NATIVE (opsional, untuk versi APK)
+Saat dibungkus WebView, daftarkan objek JavascriptInterface bernama
+"Android" dengan method berikut. Jika objek tidak ada, aplikasi berjalan
+dalam mode pratinjau (simulasi) sehingga tetap bisa dicoba di browser.
+
+  hasPermission(id)        -> boolean   id: overlay|usage|notif|battery|storage
+  requestPermission(id)    -> void      buka layar pengaturan sistem
+  showOverlay(on)          -> void      tampil/sembunyi panel melayang native
+  openApp(packageName)     -> boolean   buka aplikasi lain
+  clean()                  -> number    MB yang dibebaskan
+  getFps()                 -> number    FPS nyata dari game aktif
+  gameMode(on)             -> void      aktif/nonaktif mode game
+=====================================================================
+-->
+<style>
+/* ---------- Token tema ---------- */
+:root{
+  --bg:#0a0b0e;--surface:#14161b;--text:#f1f2f4;--accent:#5b8cff;--on-accent:#ffffff;
+  --muted:color-mix(in srgb,var(--text) 55%,transparent);
+  --border:color-mix(in srgb,var(--text) 11%,transparent);
+  --soft:color-mix(in srgb,var(--text) 7%,transparent);
+  --radius:18px;--panel-mix:94%;--speed:1;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --dur:calc(.38s*var(--speed));
+}
+html[data-anim=off] *,html[data-anim=off] *::before,html[data-anim=off] *::after{animation:none!important;transition:none!important}
+
+/* ---------- Dasar ---------- */
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;transition:background var(--dur),color var(--dur)}
+button,input{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer}
+[hidden]{display:none!important}
+.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+/* ---------- Kerangka ---------- */
+#app{max-width:560px;height:100dvh;margin:0 auto;display:flex;flex-direction:column;position:relative}
+.top{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 16px) 20px 10px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.01em}
+.mark{width:34px;height:34px;border-radius:calc(var(--radius)*.55);background:var(--accent);color:var(--on-accent);display:grid;place-items:center;transition:background var(--dur)}
+.mark .ic{width:19px;height:19px}
+.badge{font-size:12px;padding:5px 11px;border-radius:99px;background:var(--soft);color:var(--muted);display:flex;gap:7px;align-items:center}
+.badge i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.badge.on i{background:#22c55e}
+.view{flex:1;overflow:auto;padding:6px 20px 120px;display:grid;gap:14px;align-content:start}
+.view.enter>*{animation:rise var(--dur) var(--ease) both;animation-delay:calc(var(--i,0)*.05s*var(--speed))}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ---------- Komponen ---------- */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:background var(--dur),border-color var(--dur)}
+.row{display:flex;align-items:center;gap:12px}
+.grow{flex:1;min-width:0}
+h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;padding:6px 2px 0}
+h3{font-size:16px;font-weight:650;letter-spacing:-.005em}
+.sub{color:var(--muted);font-size:13px}
+.btn{height:44px;padding:0 18px;border-radius:calc(var(--radius)*.7);background:var(--accent);color:var(--on-accent);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:transform calc(var(--dur)*.4) var(--ease),background var(--dur)}
+.btn:active{transform:scale(.96)}
+.btn.ghost{background:var(--soft);color:var(--text)}
+.btn.block{width:100%}
+.btn.sm{height:36px;padding:0 14px;font-size:13px}
+.ibtn{width:38px;height:38px;border-radius:calc(var(--radius)*.6);display:grid;place-items:center;color:var(--muted);transition:background .2s,transform calc(var(--dur)*.4)}
+.ibtn:active{transform:scale(.9);background:var(--soft)}
+.ibtn .ic{width:19px;height:19px}
+.big{display:flex;align-items:baseline;gap:7px}
+.big b{font-size:34px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
+.big small{color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{padding:14px}
+.stat b{display:block;font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.stat small{color:var(--muted);font-size:12px}
+canvas.spark{width:100%;height:56px;display:block;margin-top:10px}
+.sw{width:52px;height:30px;border-radius:99px;background:var(--soft);border:1px solid var(--border);position:relative;flex:none;transition:background var(--dur) var(--ease)}
+.sw i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--text);opacity:.5;transition:transform var(--dur) var(--ease),opacity var(--dur),background var(--dur)}
+.sw[aria-checked=true]{background:var(--accent);border-color:transparent}
+.sw[aria-checked=true] i{transform:translateX(22px);background:var(--on-accent);opacity:1}
+.item{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 8px 12px 12px}
+.item b{display:block;font-weight:600}
+.item small{display:block;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.av{width:42px;height:42px;border-radius:calc(var(--radius)*.65);display:grid;place-items:center;font-weight:700;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);flex:none}
+.fi{width:40px;height:40px;border-radius:calc(var(--radius)*.65);display:grid;place-items:center;background:var(--soft);flex:none}
+.fbody{margin-top:14px;display:grid;gap:10px}
+.empty{text-align:center;display:grid;gap:10px;justify-items:center;padding:26px 16px}
+.pill-s{font-size:12px;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.pill-s.ok{background:color-mix(in srgb,#22c55e 18%,transparent);color:#22c55e}
+.bar{height:8px;border-radius:99px;background:var(--soft);overflow:hidden;margin:12px 0}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width calc(var(--dur)*1.6) var(--ease)}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;background:var(--soft);padding:4px;border-radius:calc(var(--radius)*.8);margin-top:12px}
+.seg button{height:38px;border-radius:calc(var(--radius)*.6);color:var(--muted);font-weight:600;font-size:14px;transition:background var(--dur),color var(--dur)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
+.colors{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.colors label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);background:var(--soft);padding:8px 8px 8px 12px;border-radius:calc(var(--radius)*.6)}
+input[type=color]{width:36px;height:30px;border:0;padding:0;background:none;border-radius:8px;cursor:pointer}
+.swatches{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.swatches button{width:30px;height:30px;border-radius:50%;border:2px solid var(--border);transition:transform calc(var(--dur)*.5) var(--ease)}
+.swatches button:active{transform:scale(.85)}
+.range{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;margin-top:14px;font-size:13px;color:var(--muted)}
+.range output{color:var(--text);font-variant-numeric:tabular-nums}
+.range input{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.note{font-size:13px;color:var(--muted);background:var(--soft);border-radius:calc(var(--radius)*.7);padding:12px 14px}
+
+/* ---------- Navigasi ---------- */
+.nav{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);display:grid;grid-template-columns:repeat(5,1fr);background:color-mix(in srgb,var(--surface) 90%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:calc(var(--radius) + 6px);padding:6px;z-index:5}
+.nav button{position:relative;z-index:1;display:grid;justify-items:center;gap:3px;padding:8px 0;font-size:11px;font-weight:600;color:var(--muted);transition:color var(--dur)}
+.nav button[aria-current=page]{color:var(--on-accent)}
+.nav .pill{position:absolute;top:6px;bottom:6px;left:6px;width:calc((100% - 12px)/5);border-radius:var(--radius);background:var(--accent);transition:transform var(--dur) var(--ease),background var(--dur)}
+
+/* ---------- Sheet tambah aplikasi ---------- */
+.sheet{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end;justify-content:center}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;transition:opacity var(--dur)}
+.sheet-body{position:relative;width:100%;max-width:560px;background:var(--surface);border-radius:calc(var(--radius) + 8px) calc(var(--radius) + 8px) 0 0;padding:22px 20px calc(env(safe-area-inset-bottom) + 20px);display:grid;gap:14px;transform:translateY(100%);transition:transform var(--dur) var(--ease)}
+.sheet.show .scrim{opacity:1}
+.sheet.show .sheet-body{transform:none}
+.sheet label{display:grid;gap:6px;font-size:13px;color:var(--muted)}
+.sheet input[type=text],.sheet input:not([type]){height:46px;border-radius:calc(var(--radius)*.7);border:1px solid var(--border);background:var(--soft);padding:0 14px;color:var(--text);outline:0}
+.sheet input:focus{border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:7px 12px;border-radius:99px;background:var(--soft);font-size:13px;font-weight:600}
+.err{color:#ef4444;font-size:13px;min-height:18px}
+
+/* ---------- Toast dan busy ---------- */
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 100px);transform:translate(-50%,20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:99px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity var(--dur),transform var(--dur) var(--ease);z-index:90;max-width:88vw;text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.busy{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.55);display:grid;place-content:center;justify-items:center;gap:16px;color:#fff;font-weight:600;animation:fade .25s both}
+@keyframes fade{from{opacity:0}}
+.ring{width:64px;height:64px;border-radius:50%;border:4px solid rgba(255,255,255,.2);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- Splash ---------- */
+.splash{position:fixed;inset:0;z-index:100;background:var(--bg);display:grid;place-content:center;justify-items:center;gap:18px;transition:opacity .5s,visibility .5s}
+.splash.out{opacity:0;visibility:hidden}
+.splash svg{width:76px;height:76px;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.splash path{stroke-dasharray:80;stroke-dashoffset:80;animation:draw 1s var(--ease) forwards}
+.splash p{font-weight:700;letter-spacing:.14em;font-size:13px;color:var(--muted);animation:fade .8s .3s both}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* ---------- Panel melayang ---------- */
+.fp{position:fixed;left:0;top:0;z-index:60;width:54px;height:54px;touch-action:none;will-change:transform;user-select:none;-webkit-user-select:none}
+.fp.snap{transition:transform calc(.42s*var(--speed)) var(--ease)}
+.fp-bubble{position:relative;width:54px;height:54px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;box-shadow:0 10px 26px rgba(0,0,0,.32);transition:transform var(--dur) var(--ease),opacity var(--dur)}
+.fp-bubble::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--accent);animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{from{transform:scale(1);opacity:.7}to{transform:scale(1.7);opacity:0}}
+.fp-card{position:absolute;left:0;top:0;width:264px;background:color-mix(in srgb,var(--surface) var(--panel-mix),transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 20px 54px rgba(0,0,0,.38);padding:12px;display:grid;gap:12px;opacity:0;transform:scale(.55);transform-origin:top left;pointer-events:none;transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.fp[data-open=true] .fp-card{opacity:1;transform:none;pointer-events:auto}
+.fp[data-open=true] .fp-bubble{opacity:0;transform:scale(.4);pointer-events:none}
+.fp-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:14px;cursor:grab;padding:2px 0 2px 4px}
+.fp-fps{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;align-items:center}
+.fp-fps .big b{font-size:30px}
+.fp-fps canvas{height:44px;margin:0}
+.fp-act{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fp-apps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.fp-apps button{display:grid;justify-items:center;gap:4px;font-size:11px;color:var(--muted);min-width:0}
+.fp-apps button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-apps .av{width:44px;height:44px}
+.fp-empty{font-size:12px;color:var(--muted);text-align:center;padding:4px 0}
+</style>
+</head>
+<body>
+
+<!-- Ikon -->
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-apps" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.6 0 2.2-1 1.6-2.2-.6-1.2 0-2.3 1.4-2.3h2a4 4 0 0 0 4-4c0-5-4.5-9.5-9-9.5z"/><path d="M7.5 11h.01M10 7.5h.01M14.5 7.5h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></symbol>
+  <symbol id="i-broom" viewBox="0 0 24 24"><path d="M14 3l7 7M13 8l-9 9 3 3 9-9M7 14l3 3"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><path d="M3 8h16v8H3zM21 10v4"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><path d="M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/></symbol>
+  <symbol id="i-game" viewBox="0 0 24 24"><path d="M6 8h12a4 4 0 0 1 4 4v2a3 3 0 0 1-5 2l-1-2H8l-1 2a3 3 0 0 1-5-2v-2a4 4 0 0 1 4-4z"/><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01"/></symbol>
+</svg>
+
+<div class="splash" id="splash">
+  <svg viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></svg>
+  <p>PANEL PINTAR</p>
+</div>
+
+<div id="app">
+  <header class="top">
+    <div class="brand"><span class="mark"><svg class="ic"><use href="#i-gauge"/></svg></span>Panel Pintar</div>
+    <span class="badge" id="modeBadge"><i></i><span></span></span>
+  </header>
+  <main class="view" id="view"></main>
+  <nav class="nav" id="nav" aria-label="Navigasi utama">
+    <span class="pill" id="navPill"></span>
+  </nav>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="scrim" data-act="sheet-close"></div>
+  <form class="sheet-body" id="appForm" autocomplete="off" novalidate>
+    <h3>Tambah Aplikasi</h3>
+    <div class="chips" id="chips"></div>
+    <label>Nama aplikasi<input name="name" maxlength="24"></label>
+    <label>Nama paket<input name="pkg" placeholder="com.contoh.aplikasi" autocapitalize="none" spellcheck="false"></label>
+    <p class="err" id="err"></p>
+    <div class="row">
+      <button type="button" class="btn ghost grow" data-act="sheet-close">Batal</button>
+      <button type="submit" class="btn grow">Simpan</button>
+    </div>
+  </form>
+</div>
+
+<div class="busy" id="busy" hidden><div class="ring"></div><span>Membersihkan</span></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   1. Utilitas
+   ===================================================================== */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const icon = n => `<svg class="ic"><use href="#i-${n}"/></svg>`;
+const sw = (act, on) => `<button class="sw" role="switch" aria-checked="${on}" data-act="${act}"><i></i></button>`;
+
+const Store = {
+  get(k, d) { try { const v = localStorage.getItem('pp:' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v)  { try { localStorage.setItem('pp:' + k, JSON.stringify(v)); } catch {} }
+};
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+/* =====================================================================
+   2. Jembatan native
+   ===================================================================== */
+const Native = {
+  get available() { return typeof window.Android === 'object' && window.Android !== null; },
+  call(name, ...args) {
+    try { if (this.available && typeof window.Android[name] === 'function') return window.Android[name](...args); }
+    catch (e) { console.warn('Native.' + name, e); }
+    return undefined;
+  }
+};
+
+/* =====================================================================
+   3. Tema
+   ===================================================================== */
+const PRESETS = {
+  putih: { bg:'#f3f4f7', surface:'#ffffff', text:'#111418', accent:'#2563eb' },
+  hitam: { bg:'#0a0b0e', surface:'#14161b', text:'#f1f2f4', accent:'#5b8cff' }
+};
+const SPEEDS = { mati:0, cepat:.6, normal:1, lambat:1.6 };
+const DEFAULT_THEME = { mode:'hitam', custom:{ ...PRESETS.hitam }, radius:18, alpha:94, speed:'normal' };
+
+function readable(hex) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#0b0c0f' : '#ffffff';
+}
+
+const Theme = {
+  state: Object.assign({}, DEFAULT_THEME, Store.get('theme', {})),
+  colors() { return this.state.mode === 'kustom' ? this.state.custom : PRESETS[this.state.mode]; },
+  apply() {
+    const s = this.state, c = this.colors(), st = document.documentElement.style;
+    st.setProperty('--bg', c.bg);
+    st.setProperty('--surface', c.surface);
+    st.setProperty('--text', c.text);
+    st.setProperty('--accent', c.accent);
+    st.setProperty('--on-accent', readable(c.accent));
+    st.setProperty('--radius', s.radius + 'px');
+    st.setProperty('--panel-mix', s.alpha + '%');
+    st.setProperty('--speed', SPEEDS[s.speed] || 1);
+    document.documentElement.dataset.anim = s.speed === 'mati' ? 'off' : 'on';
+    $('meta[name=theme-color]').setAttribute('content', c.bg);
+    Store.set('theme', s);
+    Native.call('setTheme', JSON.stringify(c));
+  },
+  setMode(m) {
+    if (m === 'kustom' && this.state.mode !== 'kustom') this.state.custom = { ...this.colors() };
+    this.state.mode = m; this.apply();
+  },
+  setColor(k, v) {
+    if (this.state.mode !== 'kustom') { this.state.custom = { ...this.colors() }; this.state.mode = 'kustom'; syncSeg('theme-mode', 'kustom'); }
+    this.state.custom[k] = v; this.apply();
+  },
+  reset() { this.state = JSON.parse(JSON.stringify(DEFAULT_THEME)); this.apply(); }
+};
+function syncSeg(act, val) {
+  $$(`[data-act="${act}"]`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === val));
+}
+
+/* =====================================================================
+   4. Monitor FPS dan info perangkat
+   ===================================================================== */
+const Monitor = {
+  fps: 0, hist: [], subs: [],
+  start() {
+    let last = performance.now(), frames = 0;
+    const loop = t => {
+      frames++;
+      if (t - last >= 500) {
+        let v = Math.round(frames * 1000 / (t - last));
+        const n = Native.call('getFps');
+        if (typeof n === 'number' && n > 0) v = Math.round(n);
+        this.fps = v; this.hist.push(v);
+        if (this.hist.length > 40) this.hist.shift();
+        frames = 0; last = t;
+        this.subs.forEach(f => f());
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+};
+
+function spark(cv, data, max = 70) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const x = cv.getContext('2d');
+  x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+  const col = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5b8cff';
+  const off = 40 - data.length;
+  x.strokeStyle = col; x.lineWidth = 2; x.lineJoin = 'round'; x.lineCap = 'round';
+  x.beginPath();
+  data.forEach((v, i) => {
+    const px = (i + off) / 39 * w, py = h - 3 - Math.min(v, max) / max * (h - 6);
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  });
+  x.stroke();
+}
+
+const Device = {
+  battery: null, ping: null,
+  async init() {
+    try { if (navigator.getBattery) { this.battery = await navigator.getBattery(); } } catch {}
+  },
+  batt() {
+    const b = this.battery;
+    if (!b) return { v: '--', sub: 'tidak tersedia' };
+    return { v: Math.round(b.level * 100) + '%', sub: b.charging ? 'mengisi daya' : 'baterai' };
+  },
+  mem() {
+    const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+    const ram = navigator.deviceMemory ? `RAM sekitar ${navigator.deviceMemory} GB` : 'MB heap';
+    return { v: heap === null ? '--' : heap, sub: heap === null ? 'tidak tersedia' : 'MB heap', ram };
+  },
+  async measurePing() {
+    const ts = [];
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now();
+      try { await fetch('https://www.gstatic.com/generate_204?' + Math.random(), { mode: 'no-cors', cache: 'no-store' }); }
+      catch { return null; }
+      ts.push(performance.now() - t);
+    }
+    return Math.round(ts.reduce((a, b) => a + b) / ts.length);
+  },
+  paint() {
+    const b = this.batt(), m = this.mem();
+    $$('[data-live="bat"]').forEach(e => e.textContent = b.v);
+    $$('[data-live="batsub"]').forEach(e => e.textContent = b.sub);
+    $$('[data-live="mem"]').forEach(e => e.textContent = m.v);
+    $$('[data-live="memsub"]').forEach(e => e.textContent = m.ram);
+    $$('[data-live="ping"]').forEach(e => e.textContent = this.ping === null ? '--' : this.ping);
+  }
+};
+
+function paint() {
+  $$('[data-live="fps"]').forEach(e => e.textContent = Monitor.fps);
+  $$('canvas[data-spark]').forEach(c => spark(c, Monitor.hist));
+  Device.paint();
+}
+
+/* =====================================================================
+   5. Izin
+   ===================================================================== */
+const PERMS = [
+  { id:'overlay', name:'Tampil di atas aplikasi lain', desc:'Agar panel melayang tetap terlihat saat bermain atau membuka aplikasi lain.' },
+  { id:'notif',   name:'Notifikasi',                   desc:'Menampilkan layanan panel yang aktif pada bilah notifikasi.' },
+  { id:'battery', name:'Abaikan optimasi baterai',     desc:'Mencegah sistem menghentikan panel saat layar mati atau game berjalan lama.' }
+];
+const Perm = {
+  flags: Store.get('perm', {}),
+  status(id) {
+    if (Native.available) { const v = Native.call('hasPermission', id); if (typeof v === 'boolean') return v; }
+    if (id === 'notif' && 'Notification' in window) return Notification.permission === 'granted';
+    return !!this.flags[id];
+  },
+  count() { return PERMS.filter(p => this.status(p.id)).length; },
+  async request(id) {
+    if (Native.available) { Native.call('requestPermission', id); toast('Aktifkan di pengaturan sistem, lalu kembali ke aplikasi'); return; }
+    if (id === 'notif' && 'Notification' in window) { try { await Notification.requestPermission(); } catch {} }
+    else { this.flags[id] = true; Store.set('perm', this.flags); }
+  }
+};
+
+/* =====================================================================
+   6. Aplikasi
+   ===================================================================== */
+const Apps = {
+  list: Store.get('apps', []),
+  save() { Store.set('apps', this.list); Native.call('setApps', JSON.stringify(this.list)); FP.renderApps(); },
+  add(name, pkg) { this.list.push({ id: Date.now(), name, pkg }); this.save(); },
+  remove(id) { this.list = this.list.filter(a => a.id !== id); this.save(); },
+  open(a) {
+    if (Native.available) {
+      if (Native.call('openApp', a.pkg) === false) toast('Aplikasi tidak ditemukan di perangkat');
+      return;
+    }
+    if (/Android/i.test(navigator.userAgent)) { toast('Membuka ' + a.name); location.href = 'intent:#Intent;package=' + a.pkg + ';end'; }
+    else toast('Membuka aplikasi hanya berjalan di Android');
+  },
+  suggestions: [
+    ['WhatsApp','com.whatsapp'], ['Chrome','com.android.chrome'], ['YouTube','com.google.android.youtube'],
+    ['Instagram','com.instagram.android'], ['Telegram','org.telegram.messenger'], ['Discord','com.discord'], ['Spotify','com.spotify.music']
+  ]
+};
+const appTile = a => `<div class="av">${esc(a.name.charAt(0).toUpperCase())}</div>`;
+const appRow = a => `
+  <div class="item">
+    ${appTile(a)}
+    <div class="grow"><b>${esc(a.name)}</b><small>${esc(a.pkg)}</small></div>
+    <button class="ibtn" data-act="open-app" data-id="${a.id}" aria-label="Buka ${esc(a.name)}">${icon('play')}</button>
+    <button class="ibtn" data-act="del-app" data-id="${a.id}" aria-label="Hapus ${esc(a.name)}">${icon('trash')}</button>
+  </div>`;
+
+/* =====================================================================
+   7. Pembersih dan Mode Game
+   ===================================================================== */
+const Cleaner = {
+  busy: false,
+  async run() {
+    if (this.busy) return; this.busy = true;
+    $('#busy').hidden = false;
+    const t0 = performance.now(); let freed = 0;
+    const n = Native.call('clean');
+    if (typeof n === 'number') freed = n;
+    else {
+      try {
+        const est = async () => (navigator.storage && navigator.storage.estimate ? (await navigator.storage.estimate()).usage || 0 : 0);
+        const before = await est();
+        if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+        try { sessionStorage.clear(); } catch {}
+        freed = Math.max(0, (before - await est()) / 1048576);
+      } catch { freed = 0; }
+    }
+    await sleep(Math.max(0, 1600 * (SPEEDS[Theme.state.speed] || 0) - (performance.now() - t0)));
+    $('#busy').hidden = true; this.busy = false;
+    toast(freed > 0.05 ? `Dibersihkan ${freed.toFixed(1)} MB` : 'Tidak ada berkas sementara yang perlu dibersihkan');
+  }
+};
+
+const Float = {
+  on: Store.get('floatOn', false),
+  set(v) { this.on = v; Store.set('floatOn', v); this.apply(); },
+  apply() {
+    if (Native.available) Native.call('showOverlay', this.on);
+    else this.on ? FP.show() : FP.hide();
+  }
+};
+
+const Game = {
+  on: false, lock: null,
+  async set(v) {
+    this.on = v;
+    if (v) {
+      try { if (navigator.wakeLock) this.lock = await navigator.wakeLock.request('screen'); } catch {}
+      Native.call('gameMode', true);
+      if (Perm.status('overlay')) { if (!Float.on) Float.set(true); toast('Mode Game aktif. Layar tetap menyala'); }
+      else toast('Mode Game aktif. Berikan izin tampil di atas aplikasi lain agar panel muncul');
+    } else {
+      try { if (this.lock) await this.lock.release(); } catch {}
+      this.lock = null; Native.call('gameMode', false); toast('Mode Game dimatikan');
+    }
+    render(false);
+  }
+};
+
+/* =====================================================================
+   8. Fitur
+   ===================================================================== */
+const FEATURES = [
+  { id:'fps', name:'Monitor FPS', desc:'Pantau kelancaran secara langsung.', icon:'gauge',
+    body: () => `<div class="big"><b data-live="fps">${Monitor.fps}</b><small>FPS</small></div><canvas class="spark" data-spark></canvas>` },
+  { id:'clean', name:'Pembersih', desc:'Hapus berkas sementara dan bebaskan memori.', icon:'broom',
+    body: () => `<button class="btn block" data-act="clean">${icon('broom')}Bersihkan sekarang</button>` },
+  { id:'game', name:'Mode Game', desc:'Layar tetap menyala dan panel siap dipakai.', icon:'game',
+    body: () => `<button class="btn block ${Game.on ? '' : 'ghost'}" data-act="game">${Game.on ? 'Matikan Mode Game' : 'Aktifkan Mode Game'}</button>` },
+  { id:'battery', name:'Baterai', desc:'Level dan status pengisian daya.', icon:'battery',
+    body: () => `<div class="big"><b data-live="bat">--</b><small data-live="batsub"></small></div>` },
+  { id:'memory', name:'Memori', desc:'Pemakaian memori aplikasi dan RAM perangkat.', icon:'chip',
+    body: () => `<div class="big"><b data-live="mem">--</b><small data-live="memsub"></small></div>` },
+  { id:'ping', name:'Ping jaringan', desc:'Ukur waktu respons koneksi internet.', icon:'wifi',
+    body: () => `<div class="big"><b data-live="ping">--</b><small>ms</small></div><button class="btn ghost block" data-act="ping">Ukur ulang</button>` }
+];
+const Features = {
+  on: Store.get('features', ['fps', 'clean', 'game', 'battery']),
+  save() { Store.set('features', this.on); },
+  add(id) { if (!this.on.includes(id)) { this.on.push(id); this.save(); } },
+  del(id) { this.on = this.on.filter(x => x !== id); this.save(); }
+};
+
+/* =====================================================================
+   9. Panel melayang (pratinjau di dalam halaman)
+   ===================================================================== */
+const FP = (() => {
+  let el, card, isOpen = false, pos = Store.get('fpPos', null), drag = null;
+
+  const size = () => isOpen ? { w: 264, h: card.offsetHeight || 220 } : { w: 54, h: 54 };
+  const clamp = (x, y) => {
+    const { w, h } = size(), m = 8;
+    return { x: Math.min(Math.max(m, x), Math.max(m, innerWidth - w - m)),
+             y: Math.min(Math.max(m, y), Math.max(m, innerHeight - h - m)) };
+  };
+  const place = (x, y) => { pos = clamp(x, y); el.style.transform = `translate3d(${pos.x}px,${pos.y}px,0)`; };
+  const snapEdge = () => { el.classList.add('snap'); place(pos.x + 27 < innerWidth / 2 ? 8 : innerWidth - 62, pos.y); Store.set('fpPos', pos); };
+
+  function build() {
+    el = document.createElement('div');
+    el.className = 'fp'; el.id = 'fp'; el.dataset.open = 'false'; el.hidden = true;
+    el.innerHTML = `
+      <button class="fp-bubble" aria-label="Buka panel">${icon('gauge')}</button>
+      <div class="fp-card">
+        <div class="fp-head"><span>Panel Pintar</span><button class="ibtn" data-act="fp-close" aria-label="Tutup panel">${icon('close')}</button></div>
+        <div class="fp-fps"><div class="big"><b data-live="fps">0</b><small>FPS</small></div><canvas class="spark" data-spark></canvas></div>
+        <div class="fp-act">
+          <button class="btn sm" data-act="clean">Bersihkan</button>
+          <button class="btn sm ghost" data-act="game">Mode Game</button>
+        </div>
+        <div class="fp-apps" id="fpApps"></div>
+      </div>`;
+    document.body.appendChild(el);
+    card = $('.fp-card', el);
+    if (!pos) pos = { x: innerWidth - 62, y: Math.round(innerHeight * .34) };
+
+    el.addEventListener('pointerdown', e => {
+      const h = e.target.closest('.fp-bubble, .fp-head');
+      if (!h || (e.target.closest('button') && !e.target.closest('.fp-bubble'))) return;
+      drag = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y, moved: false, bubble: h.classList.contains('fp-bubble') };
+      el.setPointerCapture(e.pointerId); el.classList.remove('snap');
+    });
+    el.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+      if (drag.moved) place(drag.ox + dx, drag.oy + dy);
+    });
+    const end = (e, cancel) => {
+      if (!drag) return;
+      const d = drag; drag = null;
+      if (d.moved) { if (isOpen) Store.set('fpPos', pos); else snapEdge(); }
+      else if (d.bubble && !cancel) open();
+    };
+    el.addEventListener('pointerup', e => end(e, false));
+    el.addEventListener('pointercancel', e => end(e, true));
+    addEventListener('resize', () => { if (!el.hidden) { isOpen ? place(pos.x, pos.y) : snapEdge(); } });
+    place(pos.x, pos.y);
+  }
+
+  function renderApps() {
+    const box = $('#fpApps'); if (!box) return;
+    const list = Apps.list.slice(0, 8);
+    box.innerHTML = list.length
+      ? list.map(a => `<button data-act="open-app" data-id="${a.id}">${appTile(a)}<span>${esc(a.name)}</span></button>`).join('')
+      : '<p class="fp-empty" style="grid-column:1/-1">Belum ada aplikasi. Tambahkan dari menu Aplikasi.</p>';
+  }
+  function open()  { isOpen = true; renderApps(); el.dataset.open = 'true'; el.classList.add('snap'); place(pos.x, pos.y); paint(); }
+  function close() { isOpen = false; el.dataset.open = 'false'; snapEdge(); }
+  function show()  { if (!el) build(); el.hidden = false; renderApps(); snapEdge(); }
+  function hide()  { if (el) { close(); el.hidden = true; } }
+  return { build, show, hide, close, renderApps };
+})();
+
+/* =====================================================================
+   10. Tampilan halaman
+   ===================================================================== */
+const PAGES = [
+  ['beranda', 'Beranda', 'home'], ['aplikasi', 'Aplikasi', 'apps'], ['fitur', 'Fitur', 'bolt'],
+  ['izin', 'Izin', 'shield'], ['tema', 'Tema', 'palette']
+];
+
+const Views = {
+  beranda() {
+    const b = Device.batt(), m = Device.mem(), on = Float.on;
+    const apps = Apps.list.slice(0, 3);
+    return `
+      <section class="card">
+        <div class="row">
+          <div class="grow"><h3>Panel Melayang</h3>
+          <p class="sub">${on ? 'Aktif. Panel tampil di atas aplikasi lain.' : 'Nonaktif. Aktifkan agar panel muncul saat bermain.'}</p></div>
+          ${sw('toggle-float', on)}
+        </div>
+      </section>
+      <section class="stats">
+        <div class="card stat"><b data-live="fps">${Monitor.fps}</b><small>FPS</small></div>
+        <div class="card stat"><b data-live="bat">${b.v}</b><small>Baterai</small></div>
+        <div class="card stat"><b data-live="mem">${m.v}</b><small>Memori MB</small></div>
+      </section>
+      <section class="card">
+        <div class="row"><h3 class="grow">Grafik FPS</h3><span class="sub">20 detik terakhir</span></div>
+        <canvas class="spark" data-spark></canvas>
+      </section>
+      <section class="row">
+        <button class="btn grow" data-act="game">${Game.on ? 'Matikan Mode Game' : 'Mode Game'}</button>
+        <button class="btn ghost grow" data-act="clean">Bersihkan</button>
+      </section>
+      <h2>Aplikasi</h2>
+      ${apps.length ? apps.map(appRow).join('') + (Apps.list.length > 3 ? `<button class="btn ghost block" data-act="go" data-page="aplikasi">Lihat semua</button>` : '')
+        : `<section class="card empty"><p class="sub">Belum ada aplikasi yang ditambahkan.</p><button class="btn sm" data-act="add-app">${icon('plus')}Tambah aplikasi</button></section>`}`;
+  },
+
+  aplikasi() {
+    return `
+      <button class="btn block" data-act="add-app">${icon('plus')}Tambah aplikasi</button>
+      ${Apps.list.length ? Apps.list.map(appRow).join('')
+        : `<section class="card empty"><h3>Belum ada aplikasi</h3><p class="sub">Tambahkan aplikasi agar bisa dibuka langsung dari panel saat bermain.</p></section>`}
+      <p class="note">Nama paket dapat dilihat pada halaman informasi aplikasi di pengaturan sistem atau pada alamat Play Store setelah tanda id=.</p>`;
+  },
+
+  fitur() {
+    const act = FEATURES.filter(f => Features.on.includes(f.id));
+    const rest = FEATURES.filter(f => !Features.on.includes(f.id));
+    return `<h2>Fitur aktif</h2>` +
+      (act.length ? act.map(f => `
+        <section class="card">
+          <div class="row"><span class="fi">${icon(f.icon)}</span>
+            <div class="grow"><h3>${f.name}</h3><p class="sub">${f.desc}</p></div>
+            <button class="ibtn" data-act="feat-del" data-id="${f.id}" aria-label="Hapus fitur">${icon('close')}</button></div>
+          <div class="fbody">${f.body()}</div>
+        </section>`).join('')
+        : `<section class="card empty"><p class="sub">Belum ada fitur aktif. Tambahkan dari daftar di bawah.</p></section>`) +
+      (rest.length ? `<h2>Tambah fitur</h2>` + rest.map(f => `
+        <section class="card row"><span class="fi">${icon(f.icon)}</span>
+          <div class="grow"><h3>${f.name}</h3><p class="sub">${f.desc}</p></div>
+          <button class="btn sm" data-act="feat-add" data-id="${f.id}">Tambah</button></section>`).join('') : '');
+  },
+
+  izin() {
+    const n = Perm.count(), t = PERMS.length;
+    return `
+      <section class="card">
+        <div class="row"><h3 class="grow">Izin aplikasi</h3><span class="sub">${n} dari ${t}</span></div>
+        <div class="bar"><i style="width:${n / t * 100}%"></i></div>
+        <button class="btn block" data-act="perm-all" ${n === t ? 'disabled style="opacity:.5"' : ''}>Izinkan semua</button>
+      </section>
+      ${PERMS.map(p => { const ok = Perm.status(p.id); return `
+        <section class="card">
+          <div class="row"><div class="grow"><h3>${p.name}</h3><p class="sub">${p.desc}</p></div>
+          <span class="pill-s ${ok ? 'ok' : ''}">${ok ? 'Diberikan' : 'Belum'}</span></div>
+          ${ok ? '' : `<button class="btn sm" style="margin-top:12px" data-act="perm" data-id="${p.id}">Izinkan</button>`}
+        </section>`; }).join('')}
+      ${Native.available ? '' : `<p class="note">Mode pratinjau: izin bersifat simulasi. Pada versi APK dengan jembatan Android, tombol Izinkan membuka pengaturan sistem yang sebenarnya.</p>`}`;
+  },
+
+  tema() {
+    const s = Theme.state, c = Theme.colors();
+    const seg = (act, items, cur) => `<div class="seg">${items.map(([v, l]) => `<button data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
+    const sw8 = ['#2563eb', '#7c3aed', '#16a34a', '#ea580c', '#dc2626', '#0891b2'];
+    return `
+      <section class="card"><h3>Mode tampilan</h3><p class="sub">Pilih putih, hitam, atau susun sendiri.</p>
+        ${seg('theme-mode', [['putih', 'Putih'], ['hitam', 'Hitam'], ['kustom', 'Kustom']], s.mode)}</section>
+      <section class="card"><h3>Warna</h3><p class="sub">Mengubah warna otomatis beralih ke mode kustom.</p>
+        <div class="colors">
+          <label>Aksen<input type="color" data-color="accent" value="${c.accent}"></label>
+          <label>Latar<input type="color" data-color="bg" value="${c.bg}"></label>
+          <label>Kartu<input type="color" data-color="surface" value="${c.surface}"></label>
+          <label>Teks<input type="color" data-color="text" value="${c.text}"></label>
+        </div>
+        <div class="swatches">${sw8.map(h => `<button data-act="theme-accent" data-v="${h}" style="background:${h}" aria-label="Aksen ${h}"></button>`).join('')}</div>
+      </section>
+      <section class="card"><h3>Bentuk dan gerak</h3>
+        <div class="range"><span>Kelengkungan sudut</span><output>${s.radius} px</output><input type="range" min="8" max="30" value="${s.radius}" data-range="radius"></div>
+        <div class="range"><span>Kepekatan panel melayang</span><output>${s.alpha}%</output><input type="range" min="60" max="100" value="${s.alpha}" data-range="alpha"></div>
+        <p class="sub" style="margin-top:16px">Kecepatan animasi</p>
+        ${seg('theme-speed', [['mati', 'Mati'], ['cepat', 'Cepat'], ['normal', 'Normal'], ['lambat', 'Lambat']], s.speed)}
+      </section>
+      <button class="btn ghost block" data-act="theme-reset">Atur ulang tampilan</button>`;
+  }
+};
+
+/* =====================================================================
+   11. Render dan navigasi
+   ===================================================================== */
+let cur = 'beranda';
+function render(anim = true) {
+  const v = $('#view');
+  v.innerHTML = Views[cur]();
+  [...v.children].forEach((c, i) => c.style.setProperty('--i', i));
+  v.classList.remove('enter');
+  if (anim) { void v.offsetWidth; v.classList.add('enter'); }
+  const idx = PAGES.findIndex(p => p[0] === cur);
+  $('#navPill').style.transform = `translateX(${idx * 100}%)`;
+  $$('#nav button').forEach((b, i) => i === idx ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  requestAnimationFrame(paint);
+}
+function go(p) { cur = p; $('#view').scrollTop = 0; render(); }
+
+function buildNav() {
+  const nav = $('#nav');
+  PAGES.forEach(([id, label, ic]) => {
+    const b = document.createElement('button');
+    b.dataset.act = 'go'; b.dataset.page = id;
+    b.innerHTML = `${icon(ic)}<span>${label}</span>`;
+    nav.appendChild(b);
+  });
+}
+
+function updateBadge() {
+  const b = $('#modeBadge');
+  b.classList.toggle('on', Native.available);
+  $('span', b).textContent = Native.available ? 'Mode native' : 'Pratinjau';
+}
+
+/* ---------- Sheet tambah aplikasi ---------- */
+function openSheet() {
+  const s = $('#sheet'); $('#appForm').reset(); $('#err').textContent = '';
+  $('#chips').innerHTML = Apps.suggestions.map(([n, p]) => `<button type="button" data-act="sheet-pick" data-n="${n}" data-p="${p}">${n}</button>`).join('');
+  s.hidden = false; requestAnimationFrame(() => s.classList.add('show'));
+}
+function closeSheet() {
+  const s = $('#sheet'); s.classList.remove('show');
+  setTimeout(() => { s.hidden = true; }, 380 * (SPEEDS[Theme.state.speed] || 0));
+  if (!SPEEDS[Theme.state.speed]) s.hidden = true;
+}
+$('#appForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target, name = f.name.value.trim(), pkg = f.pkg.value.trim();
+  if (!name) { $('#err').textContent = 'Nama aplikasi wajib diisi.'; return; }
+  if (!/^[a-z][\w]*(\.[\w]+)+$/i.test(pkg)) { $('#err').textContent = 'Nama paket tidak valid, contoh: com.whatsapp'; return; }
+  if (Apps.list.some(a => a.pkg === pkg)) { $('#err').textContent = 'Aplikasi ini sudah ditambahkan.'; return; }
+  Apps.add(name, pkg); closeSheet(); render(false); toast(name + ' ditambahkan');
+});
+
+/* ---------- Aksi klik ---------- */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const a = el.dataset.act, id = el.dataset.id, v = el.dataset.v;
+  switch (a) {
+    case 'go': go(el.dataset.page); break;
+    case 'toggle-float':
+      if (!Float.on && !Perm.status('overlay')) { toast('Izinkan tampil di atas aplikasi lain terlebih dahulu'); go('izin'); break; }
+      Float.set(!Float.on); render(false); break;
+    case 'fp-close': FP.close(); break;
+    case 'clean': await Cleaner.run(); break;
+    case 'game': await Game.set(!Game.on); break;
+    case 'ping':
+      $$('[data-live="ping"]').forEach(x => x.textContent = '...');
+      Device.ping = await Device.measurePing();
+      if (Device.ping === null) toast('Ping gagal, periksa koneksi internet');
+      Device.paint(); break;
+    case 'add-app': openSheet(); break;
+    case 'sheet-close': closeSheet(); break;
+    case 'sheet-pick': { const f = $('#appForm'); f.name.value = el.dataset.n; f.pkg.value = el.dataset.p; break; }
+    case 'open-app': { const app = Apps.list.find(x => x.id === +id); if (app) Apps.open(app); break; }
+    case 'del-app': Apps.remove(+id); render(false); break;
+    case 'feat-add': Features.add(id); render(false); break;
+    case 'feat-del': Features.del(id); render(false); break;
+    case 'perm': await Perm.request(id); render(false); break;
+    case 'perm-all':
+      if (Native.available) { const p = PERMS.find(x => !Perm.status(x.id)); if (p) await Perm.request(p.id); }
+      else for (const p of PERMS) if (!Perm.status(p.id)) await Perm.request(p.id);
+      render(false); break;
+    case 'theme-mode': Theme.setMode(v); render(false); break;
+    case 'theme-accent': Theme.setColor('accent', v); { const i = $('[data-color=accent]'); if (i) i.value = v; } break;
+    case 'theme-speed': Theme.state.speed = v; Theme.apply(); syncSeg('theme-speed', v); break;
+    case 'theme-reset': Theme.reset(); render(false); toast('Tampilan diatur ulang'); break;
+  }
+});
+
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.color) Theme.setColor(t.dataset.color, t.value);
+  else if (t.dataset.range) {
+    Theme.state[t.dataset.range] = +t.value; Theme.apply();
+    t.previousElementSibling.textContent = t.value + (t.dataset.range === 'radius' ? ' px' : '%');
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cur === 'izin') render(false); });
+
+/* =====================================================================
+   12. Mulai
+   ===================================================================== */
+async function boot() {
+  Theme.apply();
+  buildNav(); updateBadge();
+  FP.build();
+  Monitor.subs.push(paint);
+  Monitor.start();
+  await Device.init();
+  Native.call('setApps', JSON.stringify(Apps.list));
+  setInterval(() => Device.paint(), 2000);
+  render();
+  if (Float.on && Perm.status('overlay')) Float.apply(); else if (Float.on) { Float.on = false; Store.set('floatOn', false); }
+  setTimeout(() => $('#splash').classList.add('out'), 1100 * (SPEEDS[Theme.state.speed] || 0.2));
+}
+boot();
+})();
+</script>
+</body>
+</html>
